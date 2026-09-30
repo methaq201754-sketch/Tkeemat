@@ -1,363 +1,1027 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
   Text,
   View,
-  FlatList,
+  TextInput,
   TouchableOpacity,
-  SafeAreaView,
-  StatusBar,
   ScrollView,
-  Alert
+  SafeAreaView,
+  Alert,
+  Modal,
+  FlatList,
+  ActivityIndicator,
+  StatusBar,
+  Dimensions,
+  Platform,
 } from 'react-native';
 
-// --- البيانات والاستمارات مدمجة بالكامل ---
-interface Employee {
-  id: string;
+// ==========================================
+// 1. معلومات الإصدار والبناء (App Version & Build)
+// ==========================================
+export const APP_CONFIG = {
+  version: "1.0.1",
+  buildNumber: 2,
+  appName: "نظام تقييم الأداء الشامل 360",
+  lastUpdated: "2026-09-30"
+};
+
+// ==========================================
+// 2. الأنواع والواجهات (TypeScript Interfaces)
+// ==========================================
+export interface Employee {
+  id: string; // الرقم الوظيفي
   name: string;
   jobTitle: string;
   jobGrade: string;
   department: string;
   administration: string;
   formType: 'administrative' | 'technical';
+  password?: string;
 }
 
-interface Criterion {
+export interface EvaluationQuestion {
+  id: string;
+  text: string;
+  category: string;
+  weight: number;
+}
+
+export interface EvaluationForm {
   id: string;
   title: string;
-  description: string;
+  type: 'self' | 'peer' | 'manager' | 'subordinate';
+  questions: EvaluationQuestion[];
 }
 
-interface EvaluationForm {
-  title: string;
-  criteria: Criterion[];
+export interface EvaluationResult {
+  id: string;
+  evaluatorId: string;
+  evaluatorName: string;
+  targetId: string;
+  targetName: string;
+  type: 'self' | 'peer' | 'manager' | 'subordinate';
+  date: string;
+  scores: { [questionId: string]: number };
+  totalScore: number;
+  notes?: string;
 }
 
-const EMPLOYEES: Employee[] = [
-  {
-    id: "101",
-    name: "ميثاق عبده علي",
-    jobTitle: "أخصائي خدمات إدارية ومسؤول أسطول",
-    jobGrade: "الدرجة الأولى",
-    department: "إدارة الخدمات الإدارية",
-    administration: "الإدارة العامة",
-    formType: "administrative"
-  },
-  {
-    id: "102",
-    name: "أحمد محمود علي",
-    jobTitle: "مشرف صيانة ومعدات",
-    jobGrade: "الدرجة الثانية",
-    department: "إدارة الصيانة",
-    administration: "إدارة العمليات",
-    formType: "technical"
-  },
-  {
-    id: "103",
-    name: "سارة محمد أحمد",
-    jobTitle: "محلل بيانات وحسابات",
-    jobGrade: "الدرجة الثالثة",
-    department: "الإدارة المالية",
-    administration: "المالية والتخطيط",
-    formType: "administrative"
-  }
+// ==========================================
+// 3. البيانات الأولية الافتراضية (Default Data)
+// ==========================================
+const DEFAULT_EMPLOYEES: Employee[] = [
+  { id: "101", name: "ميثاق عبده علي", jobTitle: "مسؤول الخدمات والإدارة", jobGrade: "10", department: "الخدمات الإدارية", administration: "الإدارة العامة", formType: "administrative", password: "000" },
+  { id: "102", name: "أحمد علي سالم", jobTitle: "أخصائي إدارة أسطول", jobGrade: "08", department: "الخدمات الإدارية", administration: "إدارة اللوجستيات", formType: "administrative", password: "000" },
+  { id: "103", name: "سعيد محمد أحمد", jobTitle: "مهندس صيانة تشغيلية", jobGrade: "09", department: "الصيانة", administration: "الإدارة الفنية", formType: "technical", password: "000" },
+  { id: "104", name: "فؤاد عبد الله", jobTitle: "مشرف جودة وصيانة", jobGrade: "07", department: "الصيانة", administration: "الإدارة الفنية", formType: "technical", password: "000" },
+  { id: "105", name: "خالد مرتضى سيف", jobTitle: "محاسب تكاليف", jobGrade: "08", department: "الحسابات", administration: "الإدارة المالية", formType: "administrative", password: "000" },
+  { id: "106", name: "مختار عبده علي", jobTitle: "سائق أسطول ممتاز", jobGrade: "05", department: "الحركة والأسطول", administration: "إدارة اللوجستيات", formType: "technical", password: "000" },
 ];
 
-const EVALUATION_ROLES = [
-  { id: 'self', label: 'تقييم ذاتي' },
-  { id: 'manager', label: 'تقييم الرئيس المباشر' },
-  { id: 'subordinate', label: 'تقييم المرؤوسين' },
-  { id: 'peer', label: 'تقييم الزملاء' }
+const DEFAULT_QUESTIONS: EvaluationQuestion[] = [
+  { id: "q1", text: "الالتزام بمواعيد العمل والدقة في تنفيذ المهام الموكلة", category: "الانضباط والإنتاجية", weight: 20 },
+  { id: "q2", text: "التعاون مع أعضاء الفريق والعمل الجماعي بفعالية", category: "العلاقات والعمل الجماعي", weight: 20 },
+  { id: "q3", text: "قدرة حل المشكلات والتصرف في المواقف الطارئة", category: "الكفاءة والمهارة", weight: 20 },
+  { id: "q4", text: "المبادرة والتطوير الذاتي واقتراح حلول ملموسة", category: "الإبداع والتطوير", weight: 20 },
+  { id: "q5", text: "التواصل الفعال والمحافظة على بيئة عمل إيجابية", category: "التواصل والقيادة", weight: 20 },
 ];
 
-const EVALUATION_FORMS: Record<string, EvaluationForm> = {
-  administrative: {
-    title: "استمارة تقييم الوظائف الإدارية",
-    criteria: [
-      { id: "c1", title: "الانضباط بالدوام والمسؤولية", description: "مدى الالتزام بمواعيد العمل الرسمية وتحمل المسؤوليات الموكلة." },
-      { id: "c2", title: "جودة المخرجات والتقارير", description: "دقة وجودة إعداد التقارير والمستندات الإدارية." },
-      { id: "c3", title: "التواصل والعمل الجماعي", description: "القدرة على التواصل الفعال مع الزملاء والإدارات المختلفة." },
-      { id: "c4", title: "التطوير والمبادرة", description: "السعي لتقديم حلول جديدة وتطوير بيئة العمل." }
-    ]
-  },
-  technical: {
-    title: "استمارة تقييم الوظائف الفنية والتشغيلية",
-    criteria: [
-      { id: "c1", title: "الكفاءة الفنية والتشغيلية", description: "مدى الإتقان والدقة في تنفيذ المهام الفنية والصيانة." },
-      { id: "c2", title: "الالتزام بمعايير السلامة", description: "تطبيق إجراءات السلامة المهنية والمحافظة على المعدات." },
-      { id: "c3", title: "السرعة في الاستجابة والأداء", description: "إنجاز البلاغات والمهام الفنية في الوقت المحدد." },
-      { id: "c4", title: "حل المشكلات الميدانية", description: "القدرة على تشخيص الأعطال التعامل معها بفعالية." }
-    ]
-  }
-};
+// ==========================================
+// 4. المكون الرئيسي للتطبيق (App Component)
+// ==========================================
+export default function App() {
+  // حالات تسجيل الدخول والمستخدم الحالي
+  const [userRole, setUserRole] = useState<'guest' | 'user' | 'admin'>('guest');
+  const [currentUser, setCurrentUser] = useState<Employee | null>(null);
+  const [usernameInput, setUsernameInput] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
+  const [loginMode, setLoginMode] = useState<'user' | 'admin'>('user');
 
-// --- مكون شاشة التقييم ---
-function EvaluationScreen({
-  employee,
-  currentEvaluatorRole,
-  onSaveEvaluation
-}: {
-  employee: Employee;
-  currentEvaluatorRole: string;
-  onSaveEvaluation: (evalData: any) => void;
-}) {
-  const activeForm = EVALUATION_FORMS[employee.formType] || EVALUATION_FORMS.administrative;
-  const [scores, setScores] = useState<Record<string, number>>({});
+  // قاعدة بيانات التطبيق (في الذاكرة)
+  const [employees, setEmployees] = useState<Employee[]>(DEFAULT_EMPLOYEES);
+  const [evaluations, setEvaluations] = useState<EvaluationResult[]>([]);
+  const [customForms, setCustomForms] = useState<EvaluationForm[]>([]);
 
-  const handleScoreChange = (criterionId: string, scoreValue: number) => {
-    setScores(prev => ({
-      ...prev,
-      [criterionId]: scoreValue
-    }));
-  };
+  // الشاشات والنوافذ المنبثقة
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'db_import' | 'encoding' | 'change_pass' | 'reports'>('dashboard');
+  const [evalModalVisible, setEvalModalVisible] = useState(false);
+  const [evalType, setEvalType] = useState<'self' | 'peer' | 'manager' | 'subordinate'>('self');
+  const [targetEmployee, setTargetEmployee] = useState<Employee | null>(null);
+  
+  // شاشة تغيير كلمة المرور
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
 
-  const calculateCurrentFormPercentage = () => {
-    const totalCriteria = activeForm.criteria.length;
-    const maxPossibleScore = totalCriteria * 5;
-    const currentSum = Object.values(scores).reduce((acc, curr) => acc + curr, 0);
-    if (currentSum === 0) return "0.0";
-    return ((currentSum / maxPossibleScore) * 100).toFixed(1);
-  };
+  // استمارة التقييم الحالية
+  const [evalScores, setEvalScores] = useState<{ [key: string]: number }>({});
+  const [evalNotes, setEvalNotes] = useState('');
 
-  const handleSave = () => {
-    const answeredCount = Object.keys(scores).length;
-    if (answeredCount < activeForm.criteria.length) {
-      Alert.alert("تنبيه", "يرجى تقييم جميع المعايير قبل الحفظ.");
+  // الزملاء الأربعة العشوائيين للتقييم
+  const [peerList, setPeerList] = useState<Employee[]>([]);
+
+  // اختيار الزملاء العشوائيين عند تسجيل الدخول أو اختيار تقييم زميل
+  useEffect(() => {
+    if (currentUser) {
+      const others = employees.filter(e => e.id !== currentUser.id);
+      const shuffled = [...others].sort(() => 0.5 - Math.random());
+      setPeerList(shuffled.slice(0, 4));
+    }
+  }, [currentUser, employees]);
+
+  // دالة تسجيل الدخول
+  const handleLogin = () => {
+    if (!usernameInput || !passwordInput) {
+      Alert.alert("تنبيه", "يرجى إدخال اسم المستخدم / الرقم الوظيفي وكلمة المرور.");
       return;
     }
 
-    const percentage = calculateCurrentFormPercentage();
-    onSaveEvaluation({
-      employeeId: employee.id,
-      role: currentEvaluatorRole,
-      scores: scores,
-      percentage: parseFloat(percentage),
-      date: new Date().toISOString()
-    });
-
-    Alert.alert("نجاح", "تم حفظ التقييم بنجاح!");
-  };
-
-  return (
-    <ScrollView style={styles.evalContainer}>
-      <View style={styles.headerCard}>
-        <Text style={styles.employeeName}>{employee.name}</Text>
-        <Text style={styles.employeeMeta}>{employee.jobTitle} - {employee.jobGrade}</Text>
-        <Text style={styles.employeeMeta}>{employee.department} | {employee.administration}</Text>
-        <View style={styles.badge}>
-          <Text style={styles.badgeText}>{activeForm.title}</Text>
-        </View>
-      </View>
-
-      <Text style={styles.sectionTitle}>معايير التقييم (اختر من 1 إلى 5):</Text>
-      {activeForm.criteria.map((criterion, index) => (
-        <View key={criterion.id} style={styles.criterionCard}>
-          <Text style={styles.criterionTitle}>{index + 1}. {criterion.title}</Text>
-          <Text style={styles.criterionDesc}>{criterion.description}</Text>
-
-          <View style={styles.scoreRow}>
-            {[1, 2, 3, 4, 5].map((val) => {
-              const isSelected = scores[criterion.id] === val;
-              return (
-                <TouchableOpacity
-                  key={val}
-                  style={[styles.scoreButton, isSelected && styles.scoreButtonActive]}
-                  onPress={() => handleScoreChange(criterion.id, val)}
-                >
-                  <Text style={[styles.scoreText, isSelected && styles.scoreTextActive]}>
-                    {val}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        </View>
-      ))}
-
-      <View style={styles.summaryCard}>
-        <Text style={styles.summaryText}>درجة الاستمارة الحالية:</Text>
-        <Text style={styles.percentageText}>{calculateCurrentFormPercentage()}%</Text>
-        
-        <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
-          <Text style={styles.saveButtonText}>حفظ التقييم</Text>
-        </TouchableOpacity>
-      </View>
-    </ScrollView>
-  );
-}
-
-// --- المكون الرئيسي للمشروع ---
-export default function App() {
-  const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
-  const [currentRole, setCurrentRole] = useState<string>('self');
-  const [evaluationsRecord, setEvaluationsRecord] = useState<Record<string, Record<string, number>>>({});
-
-  const handleSaveEvaluation = (evalData: { employeeId: string; role: string; percentage: number }) => {
-    setEvaluationsRecord(prev => {
-      const empEvals = prev[evalData.employeeId] || {};
-      return {
-        ...prev,
-        [evalData.employeeId]: {
-          ...empEvals,
-          [evalData.role]: evalData.percentage
+    if (loginMode === 'admin') {
+      if (usernameInput === 'ميثاق' && passwordInput === '000') {
+        setUserRole('admin');
+        setCurrentUser({
+          id: "000",
+          name: "المسؤول ميثاق",
+          jobTitle: "مدير النظام",
+          jobGrade: "VIP",
+          department: "الإدارة العامة",
+          administration: "إدارة النظام",
+          formType: "administrative"
+        });
+        setActiveTab('reports');
+        Alert.alert("مرحباً بك", "تم تسجيل الدخول بنجاح كمسؤول للنظام.");
+      } else {
+        Alert.alert("خطأ", "اسم المسؤول أو كلمة المرور غير صحيحة.");
+      }
+    } else {
+      const found = employees.find(e => e.id === usernameInput);
+      if (found) {
+        const userPass = found.password || "000";
+        if (passwordInput === userPass) {
+          setUserRole('user');
+          setCurrentUser(found);
+          setActiveTab('dashboard');
+          Alert.alert("أهلاً بك", `مرحباً بك الموظف: ${found.name}`);
+        } else {
+          Alert.alert("خطأ", "كلمة المرور غير صحيحة (كلمة المرور الافتراضية هي 000).");
         }
-      };
+      } else {
+        Alert.alert("خطأ", "الرقم الوظيفي غير موجود في قاعدة بيانات الموظفين.");
+      }
+    }
+  };
+
+  // دالة تسجيل الخروج
+  const handleLogout = () => {
+    setUserRole('guest');
+    setCurrentUser(null);
+    setUsernameInput('');
+    setPasswordInput('');
+  };
+
+  // دالة تغيير كلمة المرور للمستخدم
+  const handleChangePassword = () => {
+    if (!newPassword || newPassword.length < 3) {
+      Alert.alert("تنبيه", "يرجى إدخال كلمة مرور صالحة لا تقل عن 3 أرقام.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      Alert.alert("خطأ", "كلمتا المرور غير متطابقتين.");
+      return;
+    }
+    if (currentUser) {
+      const updated = employees.map(e => e.id === currentUser.id ? { ...e, password: newPassword } : e);
+      setEmployees(updated);
+      setCurrentUser({ ...currentUser, password: newPassword });
+      setNewPassword('');
+      setConfirmPassword('');
+      Alert.alert("نجاح", "تم تعديل كلمة المرور بنجاح!");
+    }
+  };
+
+  // دالة محاكاة استيراد قاعدة بيانات الموظفين
+  const handleImportDatabase = () => {
+    Alert.alert(
+      "استيراد قاعدة البيانات",
+      "تم استيراد تحديثات قاعدة البيانات وتحديث قائمة الموظفين والأقسام بنجاح! (عدد الموظفين المحملين: " + employees.length + ")",
+      [{ text: "تم" }]
+    );
+  };
+
+  // دالة فتح تقييم
+  const startEvaluation = (type: 'self' | 'peer' | 'manager' | 'subordinate', target?: Employee) => {
+    setEvalType(type);
+    if (type === 'self') {
+      setTargetEmployee(currentUser);
+    } else {
+      setTargetEmployee(target || null);
+    }
+    setEvalScores({});
+    setEvalNotes('');
+    setEvalModalVisible(true);
+  };
+
+  // تقديم التقييم
+  const submitEvaluation = () => {
+    if (!targetEmployee || !currentUser) return;
+    
+    // حساب المجموع
+    let sum = 0;
+    DEFAULT_QUESTIONS.forEach(q => {
+      sum += (evalScores[q.id] || 0);
     });
-    setSelectedEmployee(null);
+    const totalScore = Math.round((sum / (DEFAULT_QUESTIONS.length * 5)) * 100);
+
+    const newResult: EvaluationResult = {
+      id: Date.now().toString(),
+      evaluatorId: currentUser.id,
+      evaluatorName: currentUser.name,
+      targetId: targetEmployee.id,
+      targetName: targetEmployee.name,
+      type: evalType,
+      date: new Date().toISOString().split('T')[0],
+      scores: evalScores,
+      totalScore: totalScore,
+      notes: evalNotes
+    };
+
+    setEvaluations([...evaluations, newResult]);
+    setEvalModalVisible(false);
+    Alert.alert("تم بنجاح", `تم تسجيل التقييم للزميل/الموظف (${targetEmployee.name}) بنجاح بنسبة: ${totalScore}%`);
   };
 
-  const calculateOverallAverage = (employeeId: string) => {
-    const empEvals = evaluationsRecord[employeeId];
-    if (!empEvals) return null;
-    const scores = Object.values(empEvals);
-    if (scores.length === 0) return null;
-    const sum = scores.reduce((acc, curr) => acc + curr, 0);
-    return (sum / scores.length).toFixed(1);
-  };
-
-  if (selectedEmployee) {
+  // ==========================================
+  // 5. واجهة تسجيل الدخول (Login Screen)
+  // ==========================================
+  if (userRole === 'guest') {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: '#f4f6f9' }}>
-        <View style={styles.topBar}>
-          <TouchableOpacity onPress={() => setSelectedEmployee(null)} style={styles.backButton}>
-            <Text style={styles.backButtonText}>← العودة للقائمة</Text>
-          </TouchableOpacity>
-          <Text style={styles.topBarTitle}>إجراء تقييم أداء</Text>
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor="#1a365d" />
+        <View style={styles.headerBanner}>
+          <Text style={styles.headerTitle}>{APP_CONFIG.appName}</Text>
+          <Text style={styles.headerSubtitle}>الإصدار v{APP_CONFIG.version} (البناء: {APP_CONFIG.buildNumber})</Text>
         </View>
 
-        <View style={styles.roleSelectorContainer}>
-          <Text style={styles.roleSelectorLabel}>اختر صفة المُقَيِّم الآن:</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.roleScroll}>
-            {EVALUATION_ROLES.map(role => (
+        <ScrollView contentContainerStyle={styles.loginContainer}>
+          <View style={styles.loginBox}>
+            <Text style={styles.loginTitle}>تسجيل الدخول للنظام</Text>
+            
+            {/* مفتاح التبديل بين حساب الموظف والمسؤول */}
+            <View style={styles.toggleContainer}>
               <TouchableOpacity
-                key={role.id}
-                style={[styles.roleChip, currentRole === role.id && styles.roleChipActive]}
-                onPress={() => setCurrentRole(role.id)}
+                style={[styles.toggleBtn, loginMode === 'user' && styles.toggleActive]}
+                onPress={() => setLoginMode('user')}
               >
-                <Text style={[styles.roleChipText, currentRole === role.id && styles.roleChipTextActive]}>
-                  {role.label}
-                </Text>
+                <Text style={[styles.toggleText, loginMode === 'user' && styles.toggleTextActive]}>حساب موظف</Text>
               </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
+              <TouchableOpacity
+                style={[styles.toggleBtn, loginMode === 'admin' && styles.toggleActive]}
+                onPress={() => setLoginMode('admin')}
+              >
+                <Text style={[styles.toggleText, loginMode === 'admin' && styles.toggleTextActive]}>حساب المسؤول</Text>
+              </TouchableOpacity>
+            </View>
 
-        <EvaluationScreen
-          employee={selectedEmployee}
-          currentEvaluatorRole={currentRole}
-          onSaveEvaluation={handleSaveEvaluation}
-        />
+            <Text style={styles.inputLabel}>
+              {loginMode === 'admin' ? "اسم المسؤول:" : "الرقم الوظيفي (اسم المستخدم):"}
+            </Text>
+            <TextInput
+              style={styles.textInput}
+              placeholder={loginMode === 'admin' ? "أدخل اسم المسؤول (ميثاق)" : "أدخل الرقم الوظيفي (مثال: 101)"}
+              value={usernameInput}
+              onChangeText={setUsernameInput}
+              keyboardType={loginMode === 'user' ? "numeric" : "default"}
+            />
+
+            <Text style={styles.inputLabel}>كلمة المرور:</Text>
+            <TextInput
+              style={styles.textInput}
+              placeholder="أدخل كلمة المرور (الافتراضية: 000)"
+              secureTextEntry
+              value={passwordInput}
+              onChangeText={setPasswordInput}
+            />
+
+            <TouchableOpacity style={styles.primaryButton} onPress={handleLogin}>
+              <Text style={styles.primaryButtonText}>دخول إلى النظام</Text>
+            </TouchableOpacity>
+
+            <View style={styles.infoBox}>
+              <Text style={styles.infoText}>💡 تعليمات سريعة:</Text>
+              <Text style={styles.infoSubText}>• حساب المسؤول: اسم المستخدم (ميثاق)، كلمة المرور (000)</Text>
+              <Text style={styles.infoSubText}>• حساب الموظف: الرقم الوظيفي (مثال: 101)، كلمة المرور الافتراضية (000)</Text>
+            </View>
+          </View>
+        </ScrollView>
       </SafeAreaView>
     );
   }
 
+  // ==========================================
+  // 6. واجهة المستخدم والمسؤول الرئيسية
+  // ==========================================
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#1e293b" />
+      <StatusBar barStyle="light-content" backgroundColor="#1a365d" />
       
-      <View style={styles.header}>
-        <Text style={styles.appTitle}>نظام تقييمات الأداء 360°</Text>
-        <Text style={styles.appSubtitle}>سجل الموظفين ومتابعة متوسط التقييم السنوي</Text>
+      {/* شريط الإحاطة العلوي */}
+      <View style={styles.topBar}>
+        <View style={{ alignItems: 'flex-start' }}>
+          <Text style={styles.topBarUser}>{currentUser?.name}</Text>
+          <Text style={styles.topBarRole}>{userRole === 'admin' ? "مدير النظام" : `موظف - ${currentUser?.jobTitle}`}</Text>
+        </View>
+        <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
+          <Text style={styles.logoutBtnText}>خروج</Text>
+        </TouchableOpacity>
       </View>
 
-      <FlatList
-        data={EMPLOYEES}
-        keyExtractor={item => item.id}
-        contentContainerStyle={styles.listContainer}
-        renderItem={({ item }) => {
-          const overallAvg = calculateOverallAverage(item.id);
-          const empRecord = evaluationsRecord[item.id] || {};
-          const completedRolesCount = Object.keys(empRecord).length;
+      {/* شريط التبويب العلوي */}
+      <View style={styles.tabBar}>
+        {userRole === 'user' && (
+          <>
+            <TouchableOpacity style={[styles.tabItem, activeTab === 'dashboard' && styles.tabItemActive]} onPress={() => setActiveTab('dashboard')}>
+              <Text style={[styles.tabText, activeTab === 'dashboard' && styles.tabTextActive]}>التقييمات</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.tabItem, activeTab === 'db_import' && styles.tabItemActive]} onPress={() => setActiveTab('db_import')}>
+              <Text style={[styles.tabText, activeTab === 'db_import' && styles.tabTextActive]}>استيراد البيانات</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.tabItem, activeTab === 'encoding' && styles.tabItemActive]} onPress={() => setActiveTab('encoding')}>
+              <Text style={[styles.tabText, activeTab === 'encoding' && styles.tabTextActive]}>ترنيز الاستمارات</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.tabItem, activeTab === 'change_pass' && styles.tabItemActive]} onPress={() => setActiveTab('change_pass')}>
+              <Text style={[styles.tabText, activeTab === 'change_pass' && styles.tabTextActive]}>كلمة المرور</Text>
+            </TouchableOpacity>
+          </>
+        )}
 
-          return (
-            <View style={styles.employeeCard}>
-              <View style={styles.empInfo}>
-                <Text style={styles.empName}>{item.name}</Text>
-                <Text style={styles.empDetails}>رقم الموظف: {item.id} | {item.jobTitle}</Text>
-                <Text style={styles.empSubDetails}>{item.department} - {item.administration}</Text>
-              </View>
+        {userRole === 'admin' && (
+          <>
+            <TouchableOpacity style={[styles.tabItem, activeTab === 'reports' && styles.tabItemActive]} onPress={() => setActiveTab('reports')}>
+              <Text style={[styles.tabText, activeTab === 'reports' && styles.tabTextActive]}>تقارير التقييمات</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.tabItem, activeTab === 'db_import' && styles.tabItemActive]} onPress={() => setActiveTab('db_import')}>
+              <Text style={[styles.tabText, activeTab === 'db_import' && styles.tabTextActive]}>قاعدة البيانات</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.tabItem, activeTab === 'encoding' && styles.tabItemActive]} onPress={() => setActiveTab('encoding')}>
+              <Text style={[styles.tabText, activeTab === 'encoding' && styles.tabTextActive]}>تكويد الاستمارات</Text>
+            </TouchableOpacity>
+          </>
+        )}
+      </View>
 
-              <View style={styles.statusRow}>
-                <View style={styles.badgeBox}>
-                  <Text style={styles.badgeLabel}>التقييمات المكتملة:</Text>
-                  <Text style={styles.badgeVal}>{completedRolesCount} من 4</Text>
-                </View>
+      {/* محتوى الشاشات */}
+      <ScrollView contentContainerStyle={styles.contentContainer}>
+        
+        {/* === شاشة التقييمات للمستخدم === */}
+        {userRole === 'user' && activeTab === 'dashboard' && (
+          <View>
+            <Text style={styles.sectionTitle}>📌 استمارات وأيقونات تقييم الأداء 360 درجة</Text>
+            
+            {/* الأيقونات الأربع الرئيسية */}
+            <View style={styles.gridContainer}>
+              <TouchableOpacity style={[styles.cardIcon, { backgroundColor: '#2b6cb0' }]} onPress={() => startEvaluation('self')}>
+                <Text style={styles.cardIconEmoji}>👤</Text>
+                <Text style={styles.cardIconTitle}>تقييم ذاتي</Text>
+                <Text style={styles.cardIconSub}>تقييم أداء نفسك مباشرة</Text>
+              </TouchableOpacity>
 
-                {overallAvg !== null ? (
-                  <View style={styles.avgBox}>
-                    <Text style={styles.avgLabel}>المتوسط العام</Text>
-                    <Text style={styles.avgValue}>{overallAvg}%</Text>
-                  </View>
-                ) : (
-                  <View style={[styles.avgBox, { backgroundColor: '#f1f5f9' }]}>
-                    <Text style={[styles.avgLabel, { color: '#64748b' }]}>لم يُقيَّم بعد</Text>
-                  </View>
-                )}
-              </View>
+              <TouchableOpacity style={[styles.cardIcon, { backgroundColor: '#2c7a7b' }]} onPress={() => {
+                if (peerList.length > 0) {
+                  startEvaluation('peer', peerList[0]);
+                } else {
+                  Alert.alert("تنبيه", "لا يوجد زملاء متاحين للتقييم حالياً.");
+                }
+              }}>
+                <Text style={styles.cardIconEmoji}>👥</Text>
+                <Text style={styles.cardIconTitle}>تقييم زميل</Text>
+                <Text style={styles.cardIconSub}>تقييم الزملاء المتاحين</Text>
+              </TouchableOpacity>
 
-              <TouchableOpacity
-                style={styles.evalButton}
-                onPress={() => setSelectedEmployee(item)}
-              >
-                <Text style={styles.evalButtonText}>بدء / استكمال التقييم</Text>
+              <TouchableOpacity style={[styles.cardIcon, { backgroundColor: '#c05621' }]} onPress={() => startEvaluation('manager', employees[0])}>
+                <Text style={styles.cardIconEmoji}>👔</Text>
+                <Text style={styles.cardIconTitle}>تقييم الرئيس</Text>
+                <Text style={styles.cardIconSub}>تقييم رئيسك المباشر</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={[styles.cardIcon, { backgroundColor: '#6b46c1' }]} onPress={() => startEvaluation('subordinate', employees[3])}>
+                <Text style={styles.cardIconEmoji}>🎖️</Text>
+                <Text style={styles.cardIconTitle}>تقييم المرؤوس</Text>
+                <Text style={styles.cardIconSub}>تقييم الموظفين المرؤوسين</Text>
               </TouchableOpacity>
             </View>
-          );
-        }}
-      />
+
+            {/* قسم الزملاء الأربعة العشوائيين */}
+            <View style={styles.peerSection}>
+              <Text style={styles.peerTitle}>🎯 قائمة (4) زملاء تم اختيارهم عشوائياً لتقييمهم:</Text>
+              {peerList.map((peer, idx) => (
+                <View key={peer.id} style={styles.peerCard}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.peerName}>{idx + 1}. {peer.name}</Text>
+                    <Text style={styles.peerSub}>المسمى: {peer.jobTitle} | الرقم: {peer.id}</Text>
+                  </View>
+                  <TouchableOpacity style={styles.peerBtn} onPress={() => startEvaluation('peer', peer)}>
+                    <Text style={styles.peerBtnText}>تقييم الان</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
+
+        {/* === شاشة استيراد قاعدة بيانات الموظفين === */}
+        {activeTab === 'db_import' && (
+          <View style={styles.cardBox}>
+            <Text style={styles.sectionTitle}>📂 استيراد وإدارة قاعدة بيانات الموظفين</Text>
+            <Text style={styles.cardDesc}>
+              تسمح هذه الخاصية برفع واستيراد بيانات الموظفين (الرقم الوظيفي، الاسم، الدرجة، القسم، الإدارة) من ملفات خارجية مثل Excel أو CSV.
+            </Text>
+            
+            <TouchableOpacity style={styles.primaryButton} onPress={handleImportDatabase}>
+              <Text style={styles.primaryButtonText}>📥 استيراد قاعدة البيانات الآن</Text>
+            </TouchableOpacity>
+
+            <Text style={[styles.sectionTitle, { marginTop: 20 }]}>📋 قائمة الموظفين الحالية المسجلة ({employees.length}):</Text>
+            {employees.map(e => (
+              <View key={e.id} style={styles.empRow}>
+                <Text style={styles.empTextBold}>[{e.id}] {e.name}</Text>
+                <Text style={styles.empTextSub}>{e.jobTitle} - {e.department} ({e.administration})</Text>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/* === شاشة تكويد وترميز استمارات التقييم === */}
+        {activeTab === 'encoding' && (
+          <View style={styles.cardBox}>
+            <Text style={styles.sectionTitle}>⚙️ تكويد وترميز استمارات التقييم</Text>
+            <Text style={styles.cardDesc}>
+              يمكنك استيراد استمارات جديدة من ملفات (Excel, Word, PDF) أو إنشاء استمارات وتقسيم أسئلة مخصصة داخل التطبيق مباشرة.
+            </Text>
+
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginVertical: 10 }}>
+              <TouchableOpacity style={[styles.secondaryBtn, { flex: 0.48 }]} onPress={() => Alert.alert("استيراد", "تم اختيار استيراد استمارة من ملف Word/Excel/PDF")}>
+                <Text style={styles.secondaryBtnText}>📁 استيراد ملف</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={[styles.secondaryBtn, { flex: 0.48, backgroundColor: '#2b6cb0' }]} onPress={() => Alert.alert("إنشاء", "فتح نموذج تصميم استمارة جديدة")}>
+                <Text style={[styles.secondaryBtnText, { color: '#fff' }]}>➕ إنشاء استمارة</Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={[styles.sectionTitle, { marginTop: 15 }]}>📜 الاستمارات المكوّدة المتاحة حالياً:</Text>
+            <View style={styles.formItem}>
+              <Text style={styles.formTitle}>1. استمارة التقييم الإداري 360 (افتراضية)</Text>
+              <Text style={styles.formSub}>تتضمن 5 محاور قياسية للتقييم الذاتي والزملاء.</Text>
+            </View>
+            <View style={styles.formItem}>
+              <Text style={styles.formTitle}>2. استمارة التقييم الفني والميداني</Text>
+              <Text style={styles.formSub}>مخصصة للوظائف الفنية والأسطول والصيانة.</Text>
+            </View>
+          </View>
+        )}
+
+        {/* === شاشة تقارير التقييمات للمسؤول === */}
+        {activeTab === 'reports' && (
+          <View style={styles.cardBox}>
+            <Text style={styles.sectionTitle}>📊 تقارير تقييمات الأداء الشاملة</Text>
+            <Text style={styles.cardDesc}>
+              يمكن للمسؤول الاطلاع على نتائج التقييمات لجميع الموظفين وتصدير التقرير كملفات Excel أو PDF.
+            </Text>
+
+            <View style={{ flexDirection: 'row', gap: 10, marginVertical: 10 }}>
+              <TouchableOpacity style={[styles.primaryButton, { flex: 1, backgroundColor: '#276749' }]} onPress={() => Alert.alert("تصدير Excel", "تم تصدير تقرير التقييمات بصيغة Excel بنجاح!")}>
+                <Text style={styles.primaryButtonText}>📊 تصدير Excel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.primaryButton, { flex: 1, backgroundColor: '#9b2c2c' }]} onPress={() => Alert.alert("تصدير PDF", "تم تصدير التقرير بصيغة PDF بنجاح!")}>
+                <Text style={styles.primaryButtonText}>📄 تصدير PDF</Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={[styles.sectionTitle, { marginTop: 15 }]}>📝 سجل التقييمات الأخيرة المسجلة ({evaluations.length}):</Text>
+            {evaluations.length === 0 ? (
+              <Text style={{ textAlign: 'center', color: '#718096', marginVertical: 20 }}>لا توجد تقييمات مسجلة حتى الآن. قم بإجراء تقييم لتظهر النتائج هنا.</Text>
+            ) : (
+              evaluations.map((item) => (
+                <View key={item.id} style={styles.reportCard}>
+                  <Text style={styles.reportTitle}>المقيّم: {item.evaluatorName} ➔ المقيَّم: {item.targetName}</Text>
+                  <Text style={styles.reportSub}>النوع: {item.type} | التاريخ: {item.date}</Text>
+                  <Text style={styles.reportScore}>النتيجة الإجمالية: {item.totalScore}%</Text>
+                </View>
+              ))
+            )}
+          </View>
+        )}
+
+        {/* === شاشة تغيير كلمة المرور للموظف === */}
+        {userRole === 'user' && activeTab === 'change_pass' && (
+          <View style={styles.cardBox}>
+            <Text style={styles.sectionTitle}>🔐 تعديل كلمة المرور الشخصية</Text>
+            <Text style={styles.cardDesc}>يمكنك تغيير كلمة المرور الخاصة بك من كلمة المرور الافتراضية (000) إلى كلمة مرور جديدة.</Text>
+
+            <Text style={styles.inputLabel}>كلمة المرور الجديدة:</Text>
+            <TextInput
+              style={styles.textInput}
+              placeholder="أدخل كلمة المرور الجديدة"
+              secureTextEntry
+              value={newPassword}
+              onChangeText={setNewPassword}
+            />
+
+            <Text style={styles.inputLabel}>تأكيد كلمة المرور الجديدة:</Text>
+            <TextInput
+              style={styles.textInput}
+              placeholder="أعد إدخال كلمة المرور"
+              secureTextEntry
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+            />
+
+            <TouchableOpacity style={styles.primaryButton} onPress={handleChangePassword}>
+              <Text style={styles.primaryButtonText}>حفظ كلمة المرور الجديدة</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+      </ScrollView>
+
+      {/* ==========================================
+          7. النافذة المنبثقة لإجراء التقييم (Modal)
+         ========================================== */}
+      <Modal visible={evalModalVisible} animationType="slide" transparent={false}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: '#f7fafc' }}>
+          <View style={styles.topBar}>
+            <Text style={styles.topBarUser}>استمارة التقييم - ({evalType})</Text>
+            <TouchableOpacity onPress={() => setEvalModalVisible(false)} style={styles.logoutBtn}>
+              <Text style={styles.logoutBtnText}>إغلاق</Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView contentContainerStyle={{ padding: 15 }}>
+            {targetEmployee && (
+              <View style={styles.targetInfoBox}>
+                <Text style={styles.targetInfoTitle}>الموظف المستهدف بالتقييم: {targetEmployee.name}</Text>
+                <Text style={styles.targetInfoSub}>المسمى الوظيفي: {targetEmployee.jobTitle} | الرقم الوظيفي: {targetEmployee.id}</Text>
+              </View>
+            )}
+
+            <Text style={styles.sectionTitle}>يرجى تقييم البنود التالية من 1 إلى 5:</Text>
+            {DEFAULT_QUESTIONS.map((q, index) => (
+              <View key={q.id} style={styles.questionCard}>
+                <Text style={styles.questionText}>{index + 1}. {q.text}</Text>
+                <Text style={styles.questionCategory}>المحور: {q.category}</Text>
+                
+                <View style={styles.ratingRow}>
+                  {[1, 2, 3, 4, 5].map((num) => (
+                    <TouchableOpacity
+                      key={num}
+                      style={[
+                        styles.ratingBtn,
+                        evalScores[q.id] === num && styles.ratingBtnSelected
+                      ]}
+                      onPress={() => setEvalScores({ ...evalScores, [q.id]: num })}
+                    >
+                      <Text style={[
+                        styles.ratingBtnText,
+                        evalScores[q.id] === num && styles.ratingBtnTextSelected
+                      ]}>{num}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            ))}
+
+            <Text style={styles.inputLabel}>ملاحظات وتوصيات إضافية (اختياري):</Text>
+            <TextInput
+              style={[styles.textInput, { height: 80, textAlignVertical: 'top' }]}
+              multiline
+              placeholder="اكتب أي ملاحظات إيجابية أو نقاط للتحسين..."
+              value={evalNotes}
+              onChangeText={setEvalNotes}
+            />
+
+            <TouchableOpacity style={[styles.primaryButton, { marginVertical: 20 }]} onPress={submitEvaluation}>
+              <Text style={styles.primaryButtonText}>إرسال واعتماد التقييم</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
+
+      {/* شريط معلومات الإصدار السفلي */}
+      <View style={styles.footerBar}>
+        <Text style={styles.footerText}>{APP_CONFIG.appName} | الإصدار v{APP_CONFIG.version} (Build {APP_CONFIG.buildNumber})</Text>
+      </View>
     </SafeAreaView>
   );
 }
 
+// ==========================================
+// 8. التنسيقات والأنماط (Styles)
+// ==========================================
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f4f6f9' },
-  header: { backgroundColor: '#1e293b', padding: 20, borderBottomLeftRadius: 16, borderBottomRightRadius: 16 },
-  appTitle: { fontSize: 22, fontWeight: 'bold', color: '#ffffff', textAlign: 'center' },
-  appSubtitle: { fontSize: 13, color: '#94a3b8', textAlign: 'center', marginTop: 4 },
-  listContainer: { padding: 15 },
-  employeeCard: { backgroundColor: '#ffffff', borderRadius: 12, padding: 16, marginBottom: 14, elevation: 2, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 5 },
-  empInfo: { borderBottomWidth: 1, borderBottomColor: '#f1f5f9', paddingBottom: 10, marginBottom: 10 },
-  empName: { fontSize: 18, fontWeight: 'bold', color: '#0f172a', textAlign: 'right' },
-  empDetails: { fontSize: 13, color: '#475569', textAlign: 'right', marginTop: 3 },
-  empSubDetails: { fontSize: 12, color: '#94a3b8', textAlign: 'right', marginTop: 2 },
-  statusRow: { flexDirection: 'row-reverse', justifyContent: 'space-between', alignItems: 'center', marginVertical: 8 },
-  badgeBox: { alignItems: 'flex-start' },
-  badgeLabel: { fontSize: 11, color: '#64748b' },
-  badgeVal: { fontSize: 13, fontWeight: 'bold', color: '#2563eb', marginTop: 2 },
-  avgBox: { backgroundColor: '#dcfce7', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, alignItems: 'center' },
-  avgLabel: { fontSize: 11, color: '#166534', fontWeight: 'bold' },
-  avgValue: { fontSize: 18, fontWeight: 'bold', color: '#15803d' },
-  evalButton: { backgroundColor: '#0f172a', padding: 12, borderRadius: 8, alignItems: 'center', marginTop: 8 },
-  evalButtonText: { color: '#ffffff', fontSize: 14, fontWeight: 'bold' },
-  topBar: { flexDirection: 'row-reverse', justifyContent: 'space-between', alignItems: 'center', padding: 15, backgroundColor: '#1e293b' },
-  topBarTitle: { color: '#ffffff', fontSize: 16, fontWeight: 'bold' },
-  backButton: { padding: 5 },
-  backButtonText: { color: '#38bdf8', fontSize: 14, fontWeight: 'bold' },
-  roleSelectorContainer: { backgroundColor: '#ffffff', paddingVertical: 12, paddingHorizontal: 15, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
-  roleSelectorLabel: { fontSize: 13, fontWeight: 'bold', color: '#334155', marginBottom: 8, textAlign: 'right' },
-  roleScroll: { flexDirection: 'row-reverse' },
-  roleChip: { backgroundColor: '#f1f5f9', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, marginLeft: 8, borderWidth: 1, borderColor: '#cbd5e1' },
-  roleChipActive: { backgroundColor: '#2563eb', borderColor: '#2563eb' },
-  roleChipText: { fontSize: 12, color: '#475569', fontWeight: 'bold' },
-  roleChipTextActive: { color: '#ffffff' },
-  evalContainer: { flex: 1, backgroundColor: '#f4f6f9', padding: 15 },
-  headerCard: { backgroundColor: '#1e293b', padding: 16, borderRadius: 12, marginBottom: 15 },
-  employeeName: { color: '#ffffff', fontSize: 20, fontWeight: 'bold', textAlign: 'right' },
-  employeeMeta: { color: '#94a3b8', fontSize: 14, textAlign: 'right', marginTop: 4 },
-  badge: { backgroundColor: '#334155', padding: 6, borderRadius: 6, marginTop: 10, alignSelf: 'flex-start' },
-  badgeText: { color: '#38bdf8', fontSize: 12, fontWeight: 'bold' },
-  sectionTitle: { fontSize: 16, fontWeight: 'bold', color: '#334155', marginBottom: 10, textAlign: 'right' },
-  criterionCard: { backgroundColor: '#ffffff', padding: 14, borderRadius: 10, marginBottom: 12 },
-  criterionTitle: { fontSize: 15, fontWeight: 'bold', color: '#1e293b', textAlign: 'right' },
-  criterionDesc: { fontSize: 12, color: '#64748b', textAlign: 'right', marginVertical: 6 },
-  scoreRow: { flexDirection: 'row-reverse', justifyContent: 'space-between', marginTop: 8 },
-  scoreButton: { width: 45, height: 45, borderRadius: 23, borderWidth: 1, borderColor: '#cbd5e1', justifyContent: 'center', alignItems: 'center', backgroundColor: '#f8fafc' },
-  scoreButtonActive: { backgroundColor: '#2563eb', borderColor: '#2563eb' },
-  scoreText: { fontSize: 16, fontWeight: 'bold', color: '#475569' },
-  scoreTextActive: { color: '#ffffff' },
-  summaryCard: { backgroundColor: '#ffffff', padding: 16, borderRadius: 12, alignItems: 'center', marginVertical: 15, marginBottom: 40 },
-  summaryText: { fontSize: 16, color: '#475569', fontWeight: 'bold' },
-  percentageText: { fontSize: 32, fontWeight: 'bold', color: '#16a34a', marginVertical: 8 },
-  saveButton: { backgroundColor: '#2563eb', width: '100%', padding: 14, borderRadius: 8, alignItems: 'center', marginTop: 10 },
-  saveButtonText: { color: '#ffffff', fontSize: 16, fontWeight: 'bold' }
+  container: {
+    flex: 1,
+    backgroundColor: '#f7fafc',
+  },
+  headerBanner: {
+    backgroundColor: '#1a365d',
+    padding: 20,
+    alignItems: 'center',
+  },
+  headerTitle: {
+    color: '#ffffff',
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  headerSubtitle: {
+    color: '#cbd5e0',
+    fontSize: 12,
+    marginTop: 4,
+  },
+  loginContainer: {
+    padding: 20,
+    justifyContent: 'center',
+  },
+  loginBox: {
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    padding: 20,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  loginTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#2d3748',
+    textAlign: 'center',
+    marginBottom: 15,
+  },
+  toggleContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#edf2f7',
+    borderRadius: 8,
+    padding: 4,
+    marginBottom: 15,
+  },
+  toggleBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    alignItems: 'center',
+    borderRadius: 6,
+  },
+  toggleActive: {
+    backgroundColor: '#2b6cb0',
+  },
+  toggleText: {
+    fontSize: 14,
+    color: '#4a5568',
+    fontWeight: '600',
+  },
+  toggleTextActive: {
+    color: '#ffffff',
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#4a5568',
+    marginTop: 10,
+    marginBottom: 5,
+    textAlign: 'right',
+  },
+  textInput: {
+    backgroundColor: '#edf2f7',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: '#2d3748',
+    textAlign: 'right',
+    borderWidth: 1,
+    borderColor: '#cbd5e0',
+  },
+  primaryButton: {
+    backgroundColor: '#2b6cb0',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 15,
+  },
+  primaryButtonText: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
+  infoBox: {
+    marginTop: 20,
+    backgroundColor: '#ebf8ff',
+    padding: 12,
+    borderRadius: 8,
+    borderRightWidth: 4,
+    borderRightColor: '#3182ce',
+  },
+  infoText: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#2b6cb0',
+  },
+  infoSubText: {
+    fontSize: 12,
+    color: '#4a5568',
+    marginTop: 3,
+    textAlign: 'right',
+  },
+  topBar: {
+    backgroundColor: '#1a365d',
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    flexDirection: 'row-reverse',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  topBarUser: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
+  topBarRole: {
+    color: '#cbd5e0',
+    fontSize: 12,
+  },
+  logoutBtn: {
+    backgroundColor: '#e53e3e',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  logoutBtnText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  tabBar: {
+    flexDirection: 'row-reverse',
+    backgroundColor: '#2d3748',
+  },
+  tabItem: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  tabItemActive: {
+    borderBottomWidth: 3,
+    borderBottomColor: '#3182ce',
+    backgroundColor: '#1a202c',
+  },
+  tabText: {
+    color: '#a0aec0',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  tabTextActive: {
+    color: '#ffffff',
+  },
+  contentContainer: {
+    padding: 15,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#2d3748',
+    marginBottom: 12,
+    textAlign: 'right',
+  },
+  gridContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  cardIcon: {
+    width: '48%',
+    padding: 15,
+    borderRadius: 10,
+    alignItems: 'center',
+    marginBottom: 10,
+    elevation: 2,
+  },
+  cardIconEmoji: {
+    fontSize: 28,
+  },
+  cardIconTitle: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: 'bold',
+    marginTop: 5,
+  },
+  cardIconSub: {
+    color: '#e2e8f0',
+    fontSize: 11,
+    marginTop: 2,
+    textAlign: 'center',
+  },
+  peerSection: {
+    marginTop: 15,
+    backgroundColor: '#ffffff',
+    padding: 12,
+    borderRadius: 10,
+    elevation: 1,
+  },
+  peerTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#2d3748',
+    marginBottom: 10,
+    textAlign: 'right',
+  },
+  peerCard: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#edf2f7',
+  },
+  peerName: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#2d3748',
+    textAlign: 'right',
+  },
+  peerSub: {
+    fontSize: 12,
+    color: '#718096',
+    textAlign: 'right',
+  },
+  peerBtn: {
+    backgroundColor: '#319795',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
+  },
+  peerBtnText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  cardBox: {
+    backgroundColor: '#ffffff',
+    borderRadius: 10,
+    padding: 15,
+    elevation: 2,
+  },
+  cardDesc: {
+    fontSize: 13,
+    color: '#4a5568',
+    lineHeight: 18,
+    textAlign: 'right',
+    marginBottom: 10,
+  },
+  empRow: {
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#edf2f7',
+  },
+  empTextBold: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#2d3748',
+    textAlign: 'right',
+  },
+  empTextSub: {
+    fontSize: 12,
+    color: '#718096',
+    textAlign: 'right',
+  },
+  secondaryBtn: {
+    backgroundColor: '#edf2f7',
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#cbd5e0',
+  },
+  secondaryBtnText: {
+    color: '#2d3748',
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  formItem: {
+    backgroundColor: '#f7fafc',
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 8,
+    borderRightWidth: 3,
+    borderRightColor: '#3182ce',
+  },
+  formTitle: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#2d3748',
+    textAlign: 'right',
+  },
+  formSub: {
+    fontSize: 12,
+    color: '#718096',
+    textAlign: 'right',
+  },
+  reportCard: {
+    backgroundColor: '#f7fafc',
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 8,
+    borderRightWidth: 3,
+    borderRightColor: '#38a169',
+  },
+  reportTitle: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#2d3748',
+    textAlign: 'right',
+  },
+  reportSub: {
+    fontSize: 12,
+    color: '#718096',
+    textAlign: 'right',
+  },
+  reportScore: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#276749',
+    textAlign: 'right',
+    marginTop: 4,
+  },
+  targetInfoBox: {
+    backgroundColor: '#ebf8ff',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 15,
+  },
+  targetInfoTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#2b6cb0',
+    textAlign: 'right',
+  },
+  targetInfoSub: {
+    fontSize: 12,
+    color: '#4a5568',
+    textAlign: 'right',
+    marginTop: 2,
+  },
+  questionCard: {
+    backgroundColor: '#ffffff',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 10,
+    elevation: 1,
+  },
+  questionText: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#2d3748',
+    textAlign: 'right',
+  },
+  questionCategory: {
+    fontSize: 11,
+    color: '#718096',
+    textAlign: 'right',
+    marginBottom: 8,
+  },
+  ratingRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginTop: 5,
+  },
+  ratingBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#edf2f7',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#cbd5e0',
+  },
+  ratingBtnSelected: {
+    backgroundColor: '#3182ce',
+    borderColor: '#2b6cb0',
+  },
+  ratingBtnText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#4a5568',
+  },
+  ratingBtnTextSelected: {
+    color: '#ffffff',
+  },
+  footerBar: {
+    backgroundColor: '#1a202c',
+    paddingVertical: 6,
+    alignItems: 'center',
+  },
+  footerText: {
+    color: '#a0aec0',
+    fontSize: 10,
+  },
 });
