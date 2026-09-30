@@ -1,0 +1,13 @@
+{
+  "expo": {
+    "name": "Performance Evaluation App",
+    "slug": "performance-evaluation-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./icon.png",
+    "userInterfaceStyle": "light",
+    "android": {
+      "package": "com.methaq.performanceapp"
+    }
+  }
+}
