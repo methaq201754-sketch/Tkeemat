@@ -5,8 +5,15 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#1e293b"
+    },
     "android": {
-      "package": "com.methaq.performanceapp"
+      "package": "com.methaq.performanceapp",
+      "adaptiveIcon": {
+        "backgroundColor": "#1e293b"
+      }
     }
   }
 }
